@@ -2,6 +2,7 @@
 
 import datetime as dt
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from reconcile.formats import Format
@@ -93,7 +94,8 @@ def last5(value) -> str | None:
 
 
 def normalize_order_no(value) -> str:
-    return re.sub(r"[\s\-]", "", "" if value is None else str(value)).upper()
+    text = unicodedata.normalize("NFKC", "" if value is None else str(value))
+    return re.sub(r"[\s\-]", "", text).upper()
 
 
 def _text(value) -> str:

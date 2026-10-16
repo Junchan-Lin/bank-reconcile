@@ -77,3 +77,65 @@ def test_is_effective():
     assert is_effective(MISMATCH, AUTO)
     assert is_effective(CANDIDATE, "confirmed")
     assert not is_effective(CANDIDATE, PENDING)
+
+
+def test_layer1_no_substring_match():
+    assert match([dep(2, 20, 100, "A10")], [order(2, "A1", 1, 100)], 7) == []
+
+
+def test_layer1_weak_key_needs_equal_amount():
+    orders = [order(2, "1001", 1, 1500)]
+    assert match([dep(2, 1, 2500, "轉帳1001元")], orders, 7) == []
+    [result] = match([dep(2, 1, 1500, "訂單1001")], orders, 7)
+    assert (result.kind, result.layer, result.status) == (MATCHED, 1, AUTO)
+    assert result.reason == "備註含訂單編號 1001，金額相符"
+
+
+def test_layer1_phone_number_does_not_build_order_no():
+    assert match([dep(2, 20, 100, "0912-345-678")], [order(2, "345", 1, 100)], 7) == []
+
+
+def test_layer1_spaces_split_tokens():
+    assert match([dep(2, 20, 100, "A1 23")], [order(2, "A123", 1, 100)], 7) == []
+
+
+def test_layer1_duplicate_payment_becomes_unknown():
+    orders = [order(2, "A10", 1, 100), order(3, "A101", 1, 100), order(4, "C9", 1, 100)]
+    deposits = [dep(2, 1, 100, "A101"), dep(3, 2, 100, "A101")]
+    results = match(deposits, orders, 7)
+    assert [(r.deposit_index, r.order_index, r.kind) for r in results] == [(0, 1, MATCHED)]
+
+
+def test_layer1_multiple_orders_become_candidates():
+    orders = [order(2, "A1001", 1, 100), order(3, "A1002", 1, 100)]
+    results = match([dep(2, 1, 200, "A1001、A1002")], orders, 7)
+    assert [(r.order_index, r.kind, r.layer, r.status) for r in results] == [
+        (0, CANDIDATE, 1, PENDING),
+        (1, CANDIDATE, 1, PENDING),
+    ]
+    assert results[0].reason == "備註含多個訂單編號（A1001、A1002），需確認"
+
+
+def test_layer1_full_width_memo():
+    [result] = match([dep(2, 1, 100, "Ａ１００１")], [order(2, "A1001", 1, 100)], 7)
+    assert (result.kind, result.layer) == (MATCHED, 1)
+
+
+def test_layer3_candidate_limit():
+    orders = [order(2 + n, f"C{n}", 1, 700) for n in range(6)]
+    assert match([dep(2, 2, 700)], orders, 7) == []
+    results = match([dep(2, 2, 700)], orders[:5], 7)
+    assert [r.order_index for r in results] == [0, 1, 2, 3, 4]
+
+
+def test_performance_20000_by_20000():
+    import random
+    import time
+
+    rng = random.Random(0)
+    amounts = [100 * (n + 1) for n in range(50)]
+    orders = [order(n + 2, f"ORD{n}", 1 + n % 28, rng.choice(amounts)) for n in range(20000)]
+    deposits = [dep(n + 2, 1 + n % 28, rng.choice(amounts)) for n in range(20000)]
+    start = time.perf_counter()
+    match(deposits, orders, 7)
+    assert time.perf_counter() - start < 10
