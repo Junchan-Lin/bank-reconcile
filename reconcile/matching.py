@@ -6,7 +6,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from reconcile.normalize import DepositRow, OrderRow, normalize_order_no
+from reconcile.normalize import DepositRow, OrderRow
 
 MATCHED = "matched"
 MISMATCH = "mismatch"
@@ -19,6 +19,7 @@ REJECTED = "rejected"
 
 MAX_CANDIDATES = 5
 STRONG_MIN_LENGTH = 4
+MAX_KEY_TOKENS = 4
 TOKEN_SPLIT = re.compile(r"[^0-9A-Z\-]+")
 
 
@@ -37,22 +38,37 @@ def is_effective(kind: str, status: str) -> bool:
     return kind in (MATCHED, MISMATCH) or (kind == CANDIDATE and status == CONFIRMED)
 
 
-def _is_strong(key: str) -> bool:
-    return len(key) >= STRONG_MIN_LENGTH and any(c.isalpha() for c in key)
+STRONG, NUMERIC, SHORT = "strong", "numeric", "short"
 
 
-def _memo_tokens(memo: str) -> list[str]:
-    text = unicodedata.normalize("NFKC", memo).upper()
-    return [t.replace("-", "") for t in TOKEN_SPLIT.split(text) if t.replace("-", "")]
+def _strength(joined: str) -> str:
+    if len(joined) < STRONG_MIN_LENGTH:
+        return SHORT
+    if joined.isdigit():
+        return NUMERIC
+    if any(c.isdigit() for c in joined) and any(c.isalpha() for c in joined):
+        return STRONG
+    return SHORT
+
+
+def _tokens(text: str) -> tuple[str, ...]:
+    """訂單編號與備註共用的切詞：NFKC、大寫、以非英數與連字號切開、去連字號。"""
+    upper = unicodedata.normalize("NFKC", text).upper()
+    return tuple(t for t in (p.replace("-", "") for p in TOKEN_SPLIT.split(upper)) if t)
 
 
 def match(deposits: list[DepositRow], orders: list[OrderRow], window_days: int) -> list[LinkResult]:
     """入帳依（日期、列號）由早到晚處理；一筆訂單最多被確定配對一次。"""
-    by_no: dict[str, list[int]] = {}
+    by_tokens: dict[tuple[str, ...], list[int]] = {}
+    max_len = 1
     for j, o in enumerate(orders):
-        key = normalize_order_no(o.order_no)
-        if key:
-            by_no.setdefault(key, []).append(j)
+        key = _tokens(o.order_no)
+        if key and len(key) <= MAX_KEY_TOKENS:
+            by_tokens.setdefault(key, []).append(j)
+            max_len = max(max_len, len(key))
+    strengths = {
+        j: _strength("".join(_tokens(orders[j].order_no))) for js in by_tokens.values() for j in js
+    }
     by_last5: dict[tuple[str, int], list[int]] = {}
     by_amount: dict[int, list[tuple[dt.date, int]]] = {}
     for j, o in enumerate(orders):
@@ -69,26 +85,32 @@ def match(deposits: list[DepositRow], orders: list[OrderRow], window_days: int) 
     remaining = []
     for i in sequence:  # 層級 ①
         deposit = deposits[i]
-        usable: dict[int, str] = {}  # 尚未配對且可採用的命中：訂單 → 編號
-        used_strong = False
-        for token in dict.fromkeys(_memo_tokens(deposit.memo)):
-            strong = _is_strong(token)
-            for j in by_no.get(token, []):
-                if j in used:
-                    used_strong = used_strong or strong
-                elif strong or orders[j].amount == deposit.amount:
-                    usable.setdefault(j, token)
+        memo = _tokens(deposit.memo)
+        hit_orders: set[int] = set()
+        for size in range(1, min(max_len, len(memo)) + 1):
+            for start in range(len(memo) - size + 1):
+                hit_orders.update(by_tokens.get(memo[start : start + size], ()))
+        usable = sorted(
+            j
+            for j in hit_orders
+            if j not in used and (strengths[j] == STRONG or orders[j].amount == deposit.amount)
+        )
+        used_strong = any(j in used and strengths[j] == STRONG for j in hit_orders)
         if len(usable) > 1:
-            names = "、".join(orders[j].order_no for j in sorted(usable))
+            names = "、".join(dict.fromkeys(orders[j].order_no for j in usable))
             reason = f"備註含多個訂單編號（{names}），需確認"
-            results.extend(LinkResult(i, j, CANDIDATE, 1, reason, PENDING) for j in sorted(usable))
+            results.extend(LinkResult(i, j, CANDIDATE, 1, reason, PENDING) for j in usable)
         elif usable:
-            [(j, token)] = usable.items()
-            used.add(j)
+            [j] = usable
             found = orders[j]
+            if strengths[j] == SHORT:
+                reason = f"備註含短編號 {found.order_no}，金額相符，需確認"
+                results.append(LinkResult(i, j, CANDIDATE, 1, reason, PENDING))
+                continue
+            used.add(j)
             reason = f"備註含訂單編號 {found.order_no}"
             if deposit.amount == found.amount:
-                if not _is_strong(token):
+                if strengths[j] == NUMERIC:
                     reason += "，金額相符"
                 results.append(LinkResult(i, j, MATCHED, 1, reason, AUTO))
             else:
@@ -129,4 +151,4 @@ def match(deposits: list[DepositRow], orders: list[OrderRow], window_days: int) 
             days = (deposit.date - order_date).days
             reason = f"金額相符，入帳日在訂單日後 {days} 天"
             results.append(LinkResult(i, j, CANDIDATE, 3, reason, PENDING))
-    return results
+    return [r for r in results if not (r.kind == CANDIDATE and r.order_index in used)]

@@ -66,8 +66,8 @@ def test_layer3_amount_within_window():
 
 
 def test_used_orders_are_not_reused_and_order_is_deterministic():
-    orders = [order(2, "A1", 1, 100)]
-    deposits = [dep(3, 2, 100, "A1"), dep(2, 1, 100, "A1")]  # 列號 2 的入帳日期較早
+    orders = [order(2, "A1001", 1, 100)]
+    deposits = [dep(3, 2, 100, "A1001"), dep(2, 1, 100, "A1001")]  # 列號 2 的入帳日期較早
     [result] = match(deposits, orders, 7)
     assert result.deposit_index == 1
 
@@ -100,8 +100,8 @@ def test_layer1_spaces_split_tokens():
 
 
 def test_layer1_duplicate_payment_becomes_unknown():
-    orders = [order(2, "A10", 1, 100), order(3, "A101", 1, 100), order(4, "C9", 1, 100)]
-    deposits = [dep(2, 1, 100, "A101"), dep(3, 2, 100, "A101")]
+    orders = [order(2, "A1000", 1, 100), order(3, "A1001", 1, 100), order(4, "C9", 1, 100)]
+    deposits = [dep(2, 1, 100, "A1001"), dep(3, 2, 100, "A1001")]
     results = match(deposits, orders, 7)
     assert [(r.deposit_index, r.order_index, r.kind) for r in results] == [(0, 1, MATCHED)]
 
@@ -134,8 +134,66 @@ def test_performance_20000_by_20000():
 
     rng = random.Random(0)
     amounts = [100 * (n + 1) for n in range(50)]
-    orders = [order(n + 2, f"ORD{n}", 1 + n % 28, rng.choice(amounts)) for n in range(20000)]
-    deposits = [dep(n + 2, 1 + n % 28, rng.choice(amounts)) for n in range(20000)]
+    orders = [
+        order(n + 2, f"ORD{n}", 1 + n % 28, rng.choice(amounts), f"{n % 5000:05d}")
+        for n in range(20000)
+    ]
+    deposits = []
+    for n in range(20000):
+        memo = f"ORD{rng.randrange(20000)}" if n % 3 == 0 else ""
+        last = f"{rng.randrange(5000):05d}" if n % 3 == 1 else None
+        deposits.append(dep(n + 2, 1 + n % 28, rng.choice(amounts), memo, last))
     start = time.perf_counter()
     match(deposits, orders, 7)
     assert time.perf_counter() - start < 10
+
+
+def test_order_no_with_symbol_matches_memo_with_or_without_symbol():
+    orders = [order(2, "#A1001", 1, 100)]
+    for memo in ("A1001", "#A1001"):
+        [result] = match([dep(2, 1, 100, memo)], orders, 7)
+        assert (result.kind, result.layer) == (MATCHED, 1)
+
+
+def test_order_no_with_separator_matches_only_same_token_sequence():
+    orders = [order(2, "SO/1001", 1, 100)]
+    for memo in ("SO/1001", "SO 1001"):
+        [result] = match([dep(2, 1, 100, memo)], orders, 7)
+        assert (result.kind, result.layer) == (MATCHED, 1)
+    # 備註「SO1001」是單一詞，和〔SO, 1001〕不同，不算命中
+    assert match([dep(2, 20, 100, "SO1001")], orders, 7) == []
+
+
+def test_letters_only_order_no_is_short_and_needs_confirmation():
+    orders = [order(2, "TEST", 1, 100)]
+    assert match([dep(2, 20, 999, "TEST PAYMENT")], orders, 7) == []
+    [result] = match([dep(2, 1, 100, "TEST PAYMENT")], orders, 7)
+    assert (result.kind, result.layer, result.status) == (CANDIDATE, 1, PENDING)
+    assert result.reason == "備註含短編號 TEST，金額相符，需確認"
+
+
+def test_short_numeric_order_no_in_date_is_only_candidate():
+    [result] = match([dep(2, 1, 990, "10/12 王小明")], [order(2, "12", 1, 990)], 7)
+    assert (result.kind, result.layer) == (CANDIDATE, 1)
+
+
+def test_numeric_order_no_with_equal_amount_matches():
+    [result] = match([dep(2, 1, 100, "1001")], [order(2, "1001", 1, 100)], 7)
+    assert (result.kind, result.layer) == (MATCHED, 1)
+
+
+def test_candidate_for_order_matched_by_other_deposit_is_removed():
+    orders = [order(2, "A1001", 1, 100), order(3, "A1002", 1, 100)]
+    deposits = [dep(2, 1, 200, "A1001 A1002"), dep(3, 2, 100, "A1001")]
+    results = match(deposits, orders, 7)
+    assert sorted((r.deposit_index, r.order_index, r.kind) for r in results) == [
+        (0, 1, CANDIDATE),
+        (1, 0, MATCHED),
+    ]
+
+
+def test_duplicate_order_numbers_are_listed_once_in_reason():
+    orders = [order(2, "A1001", 1, 100), order(3, "A1001", 1, 100), order(4, "A1002", 1, 100)]
+    results = match([dep(2, 1, 300, "A1001 A1002")], orders, 7)
+    assert len(results) == 3
+    assert results[0].reason == "備註含多個訂單編號（A1001、A1002），需確認"
