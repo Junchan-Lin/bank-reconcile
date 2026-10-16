@@ -10,8 +10,9 @@ from reconcile.readers import Table
 AMOUNT_NOISE = re.compile(r"NT\$|\$|元|,|\s", re.IGNORECASE)
 AMOUNT_TEXT = re.compile(r"-?\d+(?:\.0+)?")
 DATE_COMPACT = re.compile(r"\d{8}")
-DATE_SEPARATED = re.compile(r"(\d{2,4})[/\-.](\d{1,2})[/\-.](\d{1,2})(?:\s.*)?")
+DATE_SEPARATED = re.compile(r"(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{1,2})(?:[\sT].*)?")
 ROC_OFFSET = 1911
+MIN_YEAR, MAX_YEAR = 1911, 2999
 
 
 @dataclass(frozen=True)
@@ -72,9 +73,12 @@ def parse_date(value) -> dt.date:
         match = DATE_SEPARATED.fullmatch(text)
         if not match:
             raise ValueError(f"無法解析日期「{text}」")
-        year, month, day = (int(group) for group in match.groups())
-        if year < ROC_OFFSET:  # 民國年
+        year_text, month, day = match.groups()
+        year, month, day = int(year_text), int(month), int(day)
+        if len(year_text) <= 3:  # 民國年
             year += ROC_OFFSET
+    if not MIN_YEAR <= year <= MAX_YEAR:
+        raise ValueError(f"無法解析日期「{text}」")
     try:
         return dt.date(year, month, day)
     except ValueError as e:

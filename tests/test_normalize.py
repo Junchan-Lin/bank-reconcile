@@ -50,6 +50,8 @@ def test_parse_amount_rejects(value):
         ("115/10/05", dt.date(2026, 10, 5)),
         ("115.10.05", dt.date(2026, 10, 5)),
         ("2026/10/05 14:30", dt.date(2026, 10, 5)),
+        ("99/10/05", dt.date(2010, 10, 5)),
+        ("2026-10-05T14:30:00", dt.date(2026, 10, 5)),
         (dt.datetime(2026, 10, 5, 9), dt.date(2026, 10, 5)),
         (dt.date(2026, 10, 5), dt.date(2026, 10, 5)),
     ],
@@ -58,7 +60,9 @@ def test_parse_date(value, expected):
     assert parse_date(value) == expected
 
 
-@pytest.mark.parametrize("value", ["", None, "10/05", "115/13/40", "hello"])
+@pytest.mark.parametrize(
+    "value", ["", None, "10/05", "115/13/40", "hello", "1900/1/1", "0026/10/05", "10000/1/1"]
+)
 def test_parse_date_rejects(value):
     with pytest.raises(ValueError):
         parse_date(value)
