@@ -197,3 +197,51 @@ def test_duplicate_order_numbers_are_listed_once_in_reason():
     results = match([dep(2, 1, 300, "A1001 A1002")], orders, 7)
     assert len(results) == 3
     assert results[0].reason == "備註含多個訂單編號（A1001、A1002），需確認"
+
+
+def test_short_hit_does_not_preempt_layer2():
+    orders = [order(2, "12", 1, 990), order(3, "345", 1, 990, "24680")]
+    [result] = match([dep(2, 1, 990, "10/12 匯款", "24680")], orders, 7)
+    assert (result.order_index, result.kind, result.layer) == (1, MATCHED, 2)
+
+
+def test_short_candidate_discarded_when_layer2_matches_and_order_not_reused():
+    orders = [order(2, "A1", 1, 500, "12345")]
+    deposits = [dep(2, 1, 500, "A1", "12345"), dep(3, 2, 500, last5="12345")]
+    [result] = match(deposits, orders, 7)
+    assert (result.deposit_index, result.kind, result.layer) == (0, MATCHED, 2)
+
+
+def test_numeric_order_no_equal_to_amount_is_demoted():
+    [result] = match([dep(2, 1, 1500, "轉帳1500元")], [order(2, "1500", 1, 1500)], 7)
+    assert (result.kind, result.layer) == (CANDIDATE, 1)
+
+
+def test_numeric_order_no_that_looks_like_year_is_demoted():
+    [result] = match([dep(2, 1, 990, "2026/10/01 王")], [order(2, "2026", 1, 990)], 7)
+    assert (result.kind, result.layer) == (CANDIDATE, 1)
+
+
+def test_strong_hit_ignores_short_hits():
+    orders = [order(2, "A1001", 1, 990), order(3, "12", 1, 990)]
+    [result] = match([dep(2, 1, 990, "A1001 10/12")], orders, 7)
+    assert (result.order_index, result.kind, result.layer) == (0, MATCHED, 1)
+
+
+def test_short_only_hit_adds_layer3_candidates_short_first():
+    orders = [order(2, "B2000", 1, 990), order(3, "12", 1, 990)]
+    results = match([dep(2, 1, 990, "第12號")], orders, 7)
+    assert [(r.order_index, r.layer) for r in results] == [(1, 1), (0, 3)]
+
+
+def test_short_candidates_survive_when_layer3_over_limit():
+    orders = [order(2, "12", 1, 990)] + [order(3 + n, f"B{n}", 1, 990) for n in range(6)]
+    results = match([dep(2, 1, 990, "第12號")], orders, 7)
+    assert [(r.order_index, r.layer) for r in results] == [(0, 1)]
+
+
+def test_identical_order_numbers_reason():
+    orders = [order(2, "A1001", 1, 100), order(3, "A1001", 1, 100)]
+    results = match([dep(2, 1, 200, "A1001")], orders, 7)
+    assert len(results) == 2
+    assert results[0].reason == "訂單編號 A1001 對應多筆訂單，需確認"
