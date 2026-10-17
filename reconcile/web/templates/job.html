@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}對帳工作 #{{ job.id }}｜銀行入帳對帳{% endblock %}
+{% block content %}
+{% set s = view.summary %}
+<p><a href="/">← 回到對帳工作</a></p>
+<h2>對帳工作 #{{ job.id }}</h2>
+<p class="muted">{{ job.created_at | localtime }}｜銀行明細：{{ job.bank_filename }}（{{ job.bank_format }}）｜訂單：{{ job.orders_filename }}（{{ job.orders_format }}）｜日期容許 {{ job.window_days }} 天</p>
+<p class="actions">
+  <a class="button" href="/jobs/{{ job.id }}/report.xlsx">下載 Excel 報表</a>
+  <form method="post" action="/jobs/{{ job.id }}/delete" onsubmit="return confirm('確定刪除這個對帳工作？')"><button class="danger">刪除</button></form>
+</p>
+
+<div class="cards">
+  <div class="stat"><b>{{ s.match_rate }}%</b><span>配對率（{{ s.matched_count }} / {{ s.order_count }} 筆訂單）</span></div>
+  <div class="stat warn"><b>{{ s.pending_count }}</b><span>待確認入帳</span></div>
+  <div class="stat bad"><b>{{ s.mismatch_count }}</b><span>金額不符</span></div>
+  <div class="stat bad"><b>{{ s.unpaid_count }}</b><span>未收款（{{ s.unpaid_total | money }} 元）</span></div>
+  <div class="stat bad"><b>{{ s.unknown_count }}</b><span>不明入帳（{{ s.unknown_total | money }} 元）</span></div>
+  <div class="stat"><b>{{ s.deposit_count }}</b><span>入帳（{{ s.deposit_total | money }} 元）</span></div>
+</div>
+
+<h3 id="pending">待確認</h3>
+<table>
+  <thead><tr><th>入帳</th><th>金額</th><th>備註</th><th>候選訂單</th><th>訂單日期</th><th>客戶</th><th>依據</th><th></th></tr></thead>
+  <tbody>
+  {% for link in view.pending %}
+    <tr class="row-warn">
+      <td>第 {{ link.deposit.row_no }} 列｜{{ link.deposit.date }}</td>
+      <td>{{ link.deposit.amount | money }}</td>
+      <td>{{ link.deposit.memo }}</td>
+      <td>{{ link.order.order_no }}</td>
+      <td>{{ link.order.date }}</td>
+      <td>{{ link.order.customer }}</td>
+      <td>{{ link.reason }}</td>
+      <td class="nowrap">
+        <form method="post" action="/links/{{ link.id }}/confirm"><button>確認</button></form>
+        <form method="post" action="/links/{{ link.id }}/reject"><button class="secondary">排除</button></form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="muted">沒有待確認項目</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>金額不符</h3>
+<table>
+  <thead><tr><th>入帳日期</th><th>入帳金額</th><th>訂單</th><th>訂單金額</th><th>依據</th></tr></thead>
+  <tbody>
+  {% for link in view.mismatched %}
+    <tr class="row-bad"><td>{{ link.deposit.date }}</td><td>{{ link.deposit.amount | money }}</td><td>{{ link.order.order_no }}</td><td>{{ link.order.amount | money }}</td><td>{{ link.reason }}</td></tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">無</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>未收款訂單</h3>
+<table>
+  <thead><tr><th>訂單編號</th><th>訂單日期</th><th>金額</th><th>客戶</th></tr></thead>
+  <tbody>
+  {% for o in view.unpaid %}
+    <tr class="row-bad"><td>{{ o.order_no }}</td><td>{{ o.date }}</td><td>{{ o.amount | money }}</td><td>{{ o.customer }}</td></tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">無</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>不明入帳</h3>
+<table>
+  <thead><tr><th>列號</th><th>日期</th><th>金額</th><th>備註</th><th>帳號末五碼</th></tr></thead>
+  <tbody>
+  {% for d in view.unknown %}
+    <tr class="row-bad"><td>{{ d.row_no }}</td><td>{{ d.date }}</td><td>{{ d.amount | money }}</td><td>{{ d.memo }}</td><td>{{ d.last5 or "" }}</td></tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">無</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>已配對</h3>
+<table>
+  <thead><tr><th>入帳日期</th><th>金額</th><th>訂單</th><th>客戶</th><th>依據</th></tr></thead>
+  <tbody>
+  {% for link in view.matched %}
+    <tr><td>{{ link.deposit.date }}</td><td>{{ link.deposit.amount | money }}</td><td>{{ link.order.order_no }}</td><td>{{ link.order.customer }}</td><td>{{ link.reason }}{% if link.status == "confirmed" %}（已確認）{% endif %}</td></tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">無</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>略過的資料列</h3>
+<table>
+  <thead><tr><th>來源</th><th>原始列號</th><th>原因</th></tr></thead>
+  <tbody>
+  {% for r in view.skipped %}
+    <tr><td>{{ KIND_LABELS[r.source] }}</td><td>{{ r.row_no }}</td><td>{{ r.reason }}</td></tr>
+  {% else %}
+    <tr><td colspan="3" class="muted">無</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

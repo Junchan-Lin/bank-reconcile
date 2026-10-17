@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>新增對帳</h2>
+  <p class="muted">上傳銀行入帳明細與訂單匯出檔（CSV 或 Excel），系統會自動辨識格式並配對；格式辨識不出來時，會請你指定欄位。</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form class="upload" method="post" action="/jobs" enctype="multipart/form-data">
+    <label>銀行明細 <input type="file" name="bank_file" accept=".csv,.xlsx" required></label>
+    <label>訂單 <input type="file" name="orders_file" accept=".csv,.xlsx" required></label>
+    <label>日期容許天數 <input type="number" name="window_days" min="0" max="60" value="7"> 天</label>
+    <button>開始對帳</button>
+  </form>
+  <form method="post" action="/samples"><button class="secondary">載入範例資料</button></form>
+</section>
+
+<section>
+  <h2>對帳工作</h2>
+  <p class="muted">對帳工作保留 {{ retention_days }} 天，到期自動刪除（含銀行資料）。</p>
+  <table>
+    <thead><tr><th>#</th><th>建立時間</th><th>銀行明細</th><th>訂單</th><th>配對率</th><th>待確認</th><th>未收款</th><th>不明入帳</th></tr></thead>
+    <tbody>
+    {% for job, s in rows %}
+      <tr>
+        <td><a href="/jobs/{{ job.id }}">{{ job.id }}</a></td>
+        <td>{{ job.created_at | localtime }}</td>
+        <td>{{ job.bank_filename }}</td>
+        <td>{{ job.orders_filename }}</td>
+        <td>{{ s.match_rate }}%</td>
+        <td>{{ s.pending_count }}</td>
+        <td>{{ s.unpaid_count }}</td>
+        <td>{{ s.unknown_count }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">尚無對帳工作</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
