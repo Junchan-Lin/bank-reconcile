@@ -118,7 +118,10 @@ def _sheet(workbook, title, header, rows, *, fill=None, money=(), dates=()):
     sheet.freeze_panes = "A2"
     for row in rows:
         sheet.append(list(row))
-        for cell in sheet[sheet.max_row]:
+    for cells in sheet.iter_rows(min_row=2):
+        for cell in cells:
+            if cell.data_type == "f":  # 使用者資料不可成為公式（避免公式注入）
+                cell.data_type = "s"
             if fill:
                 cell.fill = fill
             if cell.column in money:
