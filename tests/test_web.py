@@ -79,3 +79,26 @@ def test_delete_job_and_404s(client):
     assert client.post("/jobs/1/delete", follow_redirects=False).status_code == 303
     assert client.get("/jobs/1").status_code == 404
     assert client.post("/links/1/confirm").status_code == 404
+
+
+def test_upload_work_runs_off_event_loop(client, settings, monkeypatch):
+    import asyncio
+    import threading
+
+    from reconcile import service
+
+    seen = {}
+    original = service.create_job
+
+    def spy(*args, **kwargs):
+        seen["main"] = threading.current_thread() is threading.main_thread()
+        try:
+            asyncio.get_running_loop()
+            seen["loop"] = True
+        except RuntimeError:
+            seen["loop"] = False
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service, "create_job", spy)
+    client.post("/jobs", files=sample_files(settings), follow_redirects=False)
+    assert seen == {"main": False, "loop": False}

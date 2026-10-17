@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from reconcile import service
 from reconcile.config import Settings
@@ -26,10 +27,14 @@ SAMPLE_FILES = {BANK: "示範銀行A_115年10月.csv", ORDERS: "示範電商訂�
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def localtime_dt(value: dt.datetime) -> dt.datetime:
+    return value.replace(tzinfo=dt.UTC).astimezone(DISPLAY_TZ)
+
+
 def localtime(value: dt.datetime | None) -> str:
     if value is None:
         return "—"
-    return value.replace(tzinfo=dt.UTC).astimezone(DISPLAY_TZ).strftime("%Y-%m-%d %H:%M")
+    return localtime_dt(value).strftime("%Y-%m-%d %H:%M")
 
 
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -120,6 +125,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             BANK: (bank_file.filename or "", await bank_file.read(MAX_BYTES + 1)),
             ORDERS: (orders_file.filename or "", await orders_file.read(MAX_BYTES + 1)),
         }
+        return await run_in_threadpool(_finish_upload, request, files, window_days)
+
+    def _finish_upload(request: Request, files: dict, window_days: int):
         with session_factory() as session:
             if not 0 <= window_days <= 60:
                 return render_index(request, session, "日期容許天數須介於 0 到 60", 400)
@@ -164,7 +172,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_factory() as session:
             job = load_job(session, job_id)
             data = build_report(service.job_view(job))
-            filename = f"對帳報表_工作{job.id}_{job.created_at:%Y%m%d}.xlsx"
+            filename = f"對帳報表_工作{job.id}_{localtime_dt(job.created_at):%Y%m%d}.xlsx"
         disposition = (
             f"attachment; filename=\"report_{job_id}.xlsx\"; filename*=UTF-8''{quote(filename)}"
         )
