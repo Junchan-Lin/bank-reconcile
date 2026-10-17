@@ -54,7 +54,7 @@ def build_report(view: JobView) -> bytes:
         workbook,
         "已配對",
         pair_header,
-        [_pair(link) for link in view.matched],
+        [_matched_pair(link) for link in view.matched],
         money=(2, 6),
         dates=(1, 5),
     )
@@ -108,6 +108,13 @@ def build_report(view: JobView) -> bytes:
 def _pair(link) -> tuple:
     d, o = link.deposit, link.order
     return (d.date, d.amount, d.memo, o.order_no, o.date, o.amount, o.customer, link.reason)
+
+
+def _matched_pair(link) -> tuple:
+    row = _pair(link)
+    if link.status == "confirmed":
+        row = (*row[:-1], f"{row[-1]}（人工確認）")
+    return row
 
 
 def _sheet(workbook, title, header, rows, *, fill=None, money=(), dates=()):

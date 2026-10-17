@@ -60,3 +60,14 @@ def test_report_large_sheet_is_fast(session_factory):
         elapsed = time.perf_counter() - start
     assert elapsed < 5
     assert load_workbook(io.BytesIO(data))["不明入帳"].max_row == 5001
+
+
+def test_report_confirmed_candidate_is_marked(session_factory):
+    with session_factory() as session:
+        job = make_job(session)
+        service.confirm_link(session, service.job_view(job).pending[0])
+        workbook = load_workbook(io.BytesIO(build_report(service.job_view(job))))
+    sheet = workbook["已配對"]
+    reasons = {row[3].value: row[7].value for row in sheet.iter_rows(min_row=2)}
+    assert reasons["B1001"].endswith("（人工確認）")
+    assert not reasons["A1001"].endswith("（人工確認）")

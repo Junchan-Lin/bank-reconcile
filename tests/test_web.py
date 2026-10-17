@@ -180,3 +180,19 @@ def test_mapping_rejects_same_column_for_two_fields(client, settings):
     assert "「金額」不能同時對應多個欄位" in response.text
     with client.app.state.session_factory() as session:
         assert session.query(FormatProfile).count() == 0
+
+
+def test_index_retention_zero_text(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'r.db'}", upload_dir=tmp_path / "up", retention_days=0
+    )
+    with TestClient(create_app(settings)) as client:
+        text = client.get("/").text
+    assert "對帳工作不會自動刪除。" in text
+    assert "保留 0 天" not in text
+
+
+def test_job_page_shows_order_total(client, settings):
+    response = client.post("/samples", follow_redirects=True)
+    assert "訂單（" in response.text
+    assert '<p class="actions">' not in response.text

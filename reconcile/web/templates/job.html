@@ -5,10 +5,10 @@
 <p><a href="/">← 回到對帳工作</a></p>
 <h2>對帳工作 #{{ job.id }}</h2>
 <p class="muted">{{ job.created_at | localtime }}｜銀行明細：{{ job.bank_filename }}（{{ job.bank_format }}）｜訂單：{{ job.orders_filename }}（{{ job.orders_format }}）｜日期容許 {{ job.window_days }} 天</p>
-<p class="actions">
+<div class="actions">
   <a class="button" href="/jobs/{{ job.id }}/report.xlsx">下載 Excel 報表</a>
   <form method="post" action="/jobs/{{ job.id }}/delete" onsubmit="return confirm('確定刪除這個對帳工作？')"><button class="danger">刪除</button></form>
-</p>
+</div>
 
 <div class="cards">
   <div class="stat"><b>{{ s.match_rate }}%</b><span>配對率（{{ s.matched_count }} / {{ s.order_count }} 筆訂單）</span></div>
@@ -16,6 +16,7 @@
   <div class="stat bad"><b>{{ s.mismatch_count }}</b><span>金額不符</span></div>
   <div class="stat bad"><b>{{ s.unpaid_count }}</b><span>未收款（{{ s.unpaid_total | money }} 元）</span></div>
   <div class="stat bad"><b>{{ s.unknown_count }}</b><span>不明入帳（{{ s.unknown_total | money }} 元）</span></div>
+  <div class="stat"><b>{{ s.order_count }}</b><span>訂單（{{ s.order_total | money }} 元）</span></div>
   <div class="stat"><b>{{ s.deposit_count }}</b><span>入帳（{{ s.deposit_total | money }} 元）</span></div>
 </div>
 

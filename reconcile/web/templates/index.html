@@ -15,7 +15,11 @@
 
 <section>
   <h2>對帳工作</h2>
+  {% if retention_days == 0 %}
+  <p class="muted">對帳工作不會自動刪除。</p>
+  {% else %}
   <p class="muted">對帳工作保留 {{ retention_days }} 天，到期自動刪除（含銀行資料）。</p>
+  {% endif %}
   <table>
     <thead><tr><th>#</th><th>建立時間</th><th>銀行明細</th><th>訂單</th><th>配對率</th><th>待確認</th><th>未收款</th><th>不明入帳</th></tr></thead>
     <tbody>
