@@ -1,0 +1,17 @@
+services:
+  bank-reconcile:
+    build: .
+    image: bank-reconcile
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: sqlite:////data/reconcile.db
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - reconcile-data:/data
+
+volumes:
+  reconcile-data:
