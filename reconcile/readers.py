@@ -9,6 +9,8 @@ from openpyxl import load_workbook
 MAX_BYTES = 5 * 1024 * 1024
 MAX_ROWS = 20_000
 HEADER_SCAN_ROWS = 10
+# 只讀前幾欄；避免工作表的 <dimension> 因遠端格式設定而把每列補成上萬欄
+MAX_COLUMNS = 200
 # 前幾列中，第一個至少有這麼多個非空白儲存格的列視為表頭（銀行匯出常在上方有標題列）
 HEADER_MIN_COLUMNS = 3
 # 台灣銀行匯出的 CSV 常是 Big5（cp950）
@@ -49,7 +51,8 @@ def _read_csv(data: bytes) -> list[list]:
             text = data.decode(encoding)
         except UnicodeDecodeError:
             continue
-        return [[cell.strip() for cell in row] for row in csv.reader(io.StringIO(text))]
+        rows = (_trim([cell.strip() for cell in row]) for row in csv.reader(io.StringIO(text)))
+        return _collect(rows)
     raise ReadError("無法判斷 CSV 的文字編碼（支援 UTF-8 與 Big5）")
 
 
@@ -60,9 +63,31 @@ def _read_xlsx(data: bytes) -> list[list]:
         raise ReadError("無法讀取 Excel 檔，檔案可能已損壞") from e
     try:
         sheet = workbook.worksheets[0]
-        return [[_clean(value) for value in row] for row in sheet.iter_rows(values_only=True)]
+        sheet.reset_dimensions()
+        rows = (
+            _trim([_clean(value) for value in row])
+            for row in sheet.iter_rows(max_col=MAX_COLUMNS, values_only=True)
+        )
+        return _collect(rows)
     finally:
         workbook.close()
+
+
+def _collect(rows) -> list[list]:
+    # 邊讀邊檢查，超過上限就立刻停止，不把整個檔案讀進記憶體
+    limit = HEADER_SCAN_ROWS + MAX_ROWS + 1
+    result = []
+    for row in rows:
+        result.append(row)
+        if len(result) > limit:
+            raise ReadError("資料超過 2 萬列")
+    return result
+
+
+def _trim(row: list) -> list:
+    while row and _is_blank(row[-1]):
+        row.pop()
+    return row
 
 
 def _clean(value):

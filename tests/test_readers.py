@@ -1,6 +1,8 @@
 import datetime as dt
+import io
 
 import pytest
+from openpyxl import Workbook
 
 from reconcile import readers
 from reconcile.readers import ReadError, read_table
@@ -77,3 +79,30 @@ def test_size_limits(monkeypatch):
     monkeypatch.setattr(readers, "MAX_BYTES", 10)
     with pytest.raises(ReadError, match="5 MB"):
         read_table("x.csv", csv_bytes(["a,b,c", "1,2,3"]))
+
+
+def test_xlsx_wide_dimension_is_capped():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.cell(row=1, column=16384, value="x")
+    sheet.append(["帳務日", "說明", "存款"])
+    sheet.append(["2026/10/01", "轉入", 1200])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    table = read_table("bank.xlsx", buffer.getvalue())
+    assert table.header == ["帳務日", "說明", "存款"]
+    assert table.rows == [(3, ["2026/10/01", "轉入", 1200])]
+    assert all(len(row) <= readers.MAX_COLUMNS for _, row in table.rows)
+
+
+def test_csv_too_many_rows_aborts():
+    lines = ["a,b,c"] + ["1,2,3"] * (readers.MAX_ROWS + readers.HEADER_SCAN_ROWS + 5)
+    with pytest.raises(ReadError, match="2 萬列"):
+        read_table("big.csv", csv_bytes(lines))
+
+
+def test_xlsx_row_limit_stops_early(monkeypatch):
+    monkeypatch.setattr(readers, "MAX_ROWS", 5)
+    rows = [["a", "b", "c"]] + [[1, 2, 3]] * (readers.HEADER_SCAN_ROWS + 10)
+    with pytest.raises(ReadError, match="2 萬列"):
+        read_table("big.xlsx", xlsx_bytes(rows))
