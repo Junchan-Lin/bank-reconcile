@@ -6,6 +6,8 @@
 import csv
 import datetime as dt
 import io
+import re
+import zipfile
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -44,8 +46,32 @@ BANK_A_ROWS = [
     ("115/10/06", "跨行轉入", "", "5,000", "退款", "822-0006-99999"),  # 不明入帳
     ("115/10/07", "跨行轉入", "", "1,350", "", "004-0007-11111"),  # ③ 候選 A1011
     ("115/10/08", "跨行轉入", "", "2,050", "", "007-0008-24680"),  # ② 已配對
+    (
+        "115/10/09",
+        "跨行轉入",
+        "",
+        "1,200",
+        "A1001",
+        "822-0001-12345",
+    ),  # ① 疑似重複付款（A1001 已配對）→ 不明入帳
     ("115/13/40", "跨行轉入", "", "500", "", ""),  # 略過：日期不存在
 ]
+
+
+def save_fixed(workbook: Workbook, path: Path) -> None:
+    """存檔並固定時間戳（openpyxl 存檔時會覆寫 modified、zip 也帶現在時間），讓重跑結果相同。"""
+    stamp = dt.datetime(2026, 10, 1)
+    workbook.properties.created = workbook.properties.modified = stamp
+    raw = io.BytesIO()
+    workbook.save(raw)
+    with zipfile.ZipFile(raw) as src, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "docProps/core.xml":
+                data = re.sub(
+                    rb"(<dcterms:modified[^>]*>)[^<]*", rb"\g<1>2026-10-01T00:00:00Z", data
+                )
+            out.writestr(zipfile.ZipInfo(item.filename, stamp.timetuple()[:6]), data)
 
 
 def write_bank_a() -> None:
@@ -72,7 +98,7 @@ def write_bank_b() -> None:
     )
     sheet.append([dt.datetime(2026, 10, 2), "轉帳支出", 500, None, 20700, "", ""])
     sheet.append([dt.datetime(2026, 10, 3), "網銀轉入", None, 2050, 22750, "", "0007000824680"])
-    workbook.save(SAMPLES / BANK_B)
+    save_fixed(workbook, SAMPLES / BANK_B)
 
 
 def write_orders() -> None:
@@ -81,7 +107,7 @@ def write_orders() -> None:
     sheet.append(["訂單編號", "下單日期", "訂單金額", "收件人", "匯款帳號末五碼"])
     for order_no, day, amount, name, last5 in ORDER_ROWS:
         sheet.append([order_no, dt.datetime(2026, 10, day), amount, name, last5])
-    workbook.save(SAMPLES / ORDERS)
+    save_fixed(workbook, SAMPLES / ORDERS)
 
 
 def main() -> None:

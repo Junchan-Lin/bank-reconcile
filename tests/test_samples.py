@@ -40,5 +40,5 @@ def test_sample_job_covers_every_outcome(session_factory):
             "A1011",
         ]
         assert [o.order_no for o in view.unpaid] == ["A1009", "A1010"]
-        assert [d.amount for d in view.unknown] == [5000]
+        assert [d.amount for d in view.unknown] == [5000, 1200]
         assert [s.reason for s in view.skipped] == ["日期不存在「115/13/40」"]
