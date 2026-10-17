@@ -77,4 +77,8 @@ def validate_mapping(kind: str, mapping: dict[str, str], header: list[str]) -> l
                 errors.append(f"請選擇「{label}」對應的欄位")
         elif column not in header:
             errors.append(f"找不到欄位「{column}」")
+    used = [mapping[name] for name in FIELDS[kind] if mapping.get(name)]
+    for column in dict.fromkeys(used):
+        if used.count(column) > 1:
+            errors.append(f"「{column}」不能同時對應多個欄位")
     return errors

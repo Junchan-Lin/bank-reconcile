@@ -28,3 +28,9 @@ def test_validate_mapping():
     assert validate_mapping(BANK, {"date": "日期", "amount": "不存在"}, header) == [
         "找不到欄位「不存在」"
     ]
+
+
+def test_validate_mapping_rejects_duplicate_columns():
+    header = ["日期", "金額", "說明"]
+    mapping = {"date": "金額", "amount": "金額", "memo": "說明"}
+    assert validate_mapping(BANK, mapping, header) == ["「金額」不能同時對應多個欄位"]

@@ -168,3 +168,15 @@ def test_formats_page_and_delete(client, settings):
 def test_mapping_token_is_validated(client):
     assert client.get("/mapping/..%2F..%2Fetc").status_code == 404
     assert client.get("/mapping/unknown-token-1234567890").status_code == 404
+
+
+def test_mapping_rejects_same_column_for_two_fields(client, settings):
+    location = upload_custom(client, settings).headers["location"]
+    response = client.post(
+        location,
+        data={"bank_date": "金額", "bank_amount": "金額", "bank_save_name": "壞格式"},
+    )
+    assert response.status_code == 400
+    assert "「金額」不能同時對應多個欄位" in response.text
+    with client.app.state.session_factory() as session:
+        assert session.query(FormatProfile).count() == 0
