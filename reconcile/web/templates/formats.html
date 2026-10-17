@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}格式設定｜銀行入帳對帳{% endblock %}
+{% block content %}
+<h2>格式設定</h2>
+<p class="muted">上傳的檔案依表頭自動辨識格式；你建立的格式優先於內建格式。</p>
+<table>
+  <thead><tr><th>名稱</th><th>類型</th><th>欄位對應</th><th></th></tr></thead>
+  <tbody>
+  {% for fmt in saved %}
+    <tr>
+      <td>{{ fmt.name }}</td>
+      <td>{{ KIND_LABELS[fmt.kind] }}</td>
+      <td>{% for name, column in fmt.mapping.items() %}{{ fields[fmt.kind][name][0] }} ← {{ column }}{% if not loop.last %}、{% endif %}{% endfor %}</td>
+      <td><form method="post" action="/formats/{{ fmt.id }}/delete" onsubmit="return confirm('確定刪除這個格式？')"><button class="danger">刪除</button></form></td>
+    </tr>
+  {% endfor %}
+  {% for fmt in builtin %}
+    <tr>
+      <td>{{ fmt.name }}<span class="muted">（內建）</span></td>
+      <td>{{ KIND_LABELS[fmt.kind] }}</td>
+      <td>{% for name, column in fmt.mapping.items() %}{{ fields[fmt.kind][name][0] }} ← {{ column }}{% if not loop.last %}、{% endif %}{% endfor %}</td>
+      <td></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

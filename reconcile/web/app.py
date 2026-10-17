@@ -15,8 +15,17 @@ from starlette.concurrency import run_in_threadpool
 
 from reconcile import service
 from reconcile.config import Settings
-from reconcile.formats import BANK, KIND_LABELS, ORDERS, detect
-from reconcile.models import Job, Link, init_db
+from reconcile.formats import (
+    BANK,
+    BUILTIN_FORMATS,
+    FIELDS,
+    KIND_LABELS,
+    ORDERS,
+    Format,
+    detect,
+    validate_mapping,
+)
+from reconcile.models import FormatProfile, Job, Link, init_db
 from reconcile.readers import MAX_BYTES, ReadError, read_table
 from reconcile.report import build_report
 from reconcile.web import uploads
@@ -184,5 +193,103 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.delete(load_job(session, job_id))
             session.commit()
         return RedirectResponse("/", status_code=303)
+
+    def load_pending_or_404(token: str):
+        pending = uploads.load_pending(upload_dir, token)
+        if pending is None:
+            raise HTTPException(404)
+        meta, files = pending
+        return meta, files, {kind: read_table(*files[kind]) for kind in files}
+
+    def render_mapping(
+        request, session, token, meta, tables, errors=(), values=None, status_code=200
+    ):
+        sides = []
+        for kind in (BANK, ORDERS):
+            table = tables[kind]
+            sides.append(
+                {
+                    "kind": kind,
+                    "label": KIND_LABELS[kind],
+                    "filename": meta["filenames"][kind],
+                    "detected": detect(table.header, kind, service.saved_formats(session, kind)),
+                    "columns": [column for column in table.header if column],
+                    "fields": FIELDS[kind],
+                    "header": table.header,
+                    "preview": table.rows[:3],
+                }
+            )
+        return templates.TemplateResponse(
+            request,
+            "mapping.html",
+            {"token": token, "sides": sides, "errors": list(errors), "values": values or {}},
+            status_code=status_code,
+        )
+
+    @app.get("/mapping/{token}", response_class=HTMLResponse)
+    def mapping_page(request: Request, token: str):
+        meta, _, tables = load_pending_or_404(token)
+        with session_factory() as session:
+            return render_mapping(request, session, token, meta, tables)
+
+    @app.post("/mapping/{token}", response_class=HTMLResponse)
+    async def submit_mapping(request: Request, token: str):
+        values = {key: str(value).strip() for key, value in (await request.form()).items()}
+        # 讀檔、配對與寫入資料庫是同步的重工作，放到 threadpool，避免卡住 event loop
+        return await run_in_threadpool(_finish_mapping, request, token, values)
+
+    def _finish_mapping(request: Request, token: str, values: dict):
+        meta, files, tables = load_pending_or_404(token)
+        with session_factory() as session:
+            formats, errors, profiles = {}, [], []
+            for kind in (BANK, ORDERS):
+                fmt = detect(tables[kind].header, kind, service.saved_formats(session, kind))
+                if fmt is None:
+                    mapping = {
+                        name: values[f"{kind}_{name}"]
+                        for name in FIELDS[kind]
+                        if values.get(f"{kind}_{name}")
+                    }
+                    kind_errors = validate_mapping(kind, mapping, tables[kind].header)
+                    errors += [f"{KIND_LABELS[kind]}：{e}" for e in kind_errors]
+                    name = values.get(f"{kind}_save_name", "")
+                    fmt = Format(
+                        name or f"自訂{KIND_LABELS[kind]}格式", kind, mapping, builtin=False
+                    )
+                    if name:
+                        profiles.append(FormatProfile(kind=kind, name=name, mapping=mapping))
+                formats[kind] = fmt
+            if errors:
+                return render_mapping(request, session, token, meta, tables, errors, values, 400)
+            session.add_all(profiles)
+            job = service.create_job(
+                session,
+                tables=tables,
+                formats=formats,
+                filenames=meta["filenames"],
+                window_days=meta["window_days"],
+            )
+        uploads.remove_pending(upload_dir, token)
+        return RedirectResponse(f"/jobs/{job.id}", status_code=303)
+
+    @app.get("/formats", response_class=HTMLResponse)
+    def formats_page(request: Request):
+        with session_factory() as session:
+            saved = session.query(FormatProfile).order_by(FormatProfile.id).all()
+            return templates.TemplateResponse(
+                request,
+                "formats.html",
+                {"builtin": BUILTIN_FORMATS, "saved": saved, "fields": FIELDS},
+            )
+
+    @app.post("/formats/{profile_id}/delete")
+    def delete_format(profile_id: int):
+        with session_factory() as session:
+            profile = session.get(FormatProfile, profile_id)
+            if profile is None:
+                raise HTTPException(404)
+            session.delete(profile)
+            session.commit()
+        return RedirectResponse("/formats", status_code=303)
 
     return app

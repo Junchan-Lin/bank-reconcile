@@ -3,9 +3,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from reconcile.config import Settings
-from reconcile.models import Link
+from reconcile.models import FormatProfile, Link
 from reconcile.web.app import create_app
 from scripts.make_samples import BANK_A, ORDERS
+from tests.conftest import csv_bytes
 
 
 @pytest.fixture
@@ -102,3 +103,68 @@ def test_upload_work_runs_off_event_loop(client, settings, monkeypatch):
     monkeypatch.setattr(service, "create_job", spy)
     client.post("/jobs", files=sample_files(settings), follow_redirects=False)
     assert seen == {"main": False, "loop": False}
+
+
+CUSTOM_BANK = csv_bytes(["入帳日,金額,說明,帳號", "2026/10/01,1200,A1001,822-12345"])
+
+
+def upload_custom(client, settings):
+    files = sample_files(settings)
+    files["bank_file"] = ("my_bank.csv", CUSTOM_BANK)
+    return client.post("/jobs", files=files, follow_redirects=False)
+
+
+def test_unknown_format_goes_to_mapping(client, settings):
+    response = upload_custom(client, settings)
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/mapping/")
+    page = client.get(location).text
+    assert "入帳日" in page and "示範電商訂單" in page  # 訂單檔已辨識
+
+
+def test_mapping_creates_job_and_saves_format(client, settings):
+    location = upload_custom(client, settings).headers["location"]
+    response = client.post(
+        location,
+        data={
+            "bank_date": "入帳日",
+            "bank_amount": "金額",
+            "bank_memo": "說明",
+            "bank_account": "帳號",
+            "bank_save_name": "我的銀行",
+        },
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "/jobs/1"
+    assert "A1001" in client.get("/jobs/1").text
+    with client.app.state.session_factory() as session:
+        [profile] = session.query(FormatProfile).all()
+        assert profile.name == "我的銀行"
+    # 同樣格式再上傳一次，直接辨識
+    assert upload_custom(client, settings).headers["location"] == "/jobs/2"
+    assert client.get(location).status_code == 404  # 暫存檔已刪除
+
+
+def test_mapping_requires_required_fields(client, settings):
+    location = upload_custom(client, settings).headers["location"]
+    response = client.post(location, data={"bank_date": "入帳日"})
+    assert response.status_code == 400
+    assert "請選擇「存入金額」對應的欄位" in response.text
+
+
+def test_formats_page_and_delete(client, settings):
+    location = upload_custom(client, settings).headers["location"]
+    client.post(
+        location,
+        data={"bank_date": "入帳日", "bank_amount": "金額", "bank_save_name": "我的銀行"},
+    )
+    page = client.get("/formats").text
+    assert "我的銀行" in page and "示範銀行 A" in page
+    assert client.post("/formats/1/delete", follow_redirects=False).status_code == 303
+    assert "我的銀行" not in client.get("/formats").text
+
+
+def test_mapping_token_is_validated(client):
+    assert client.get("/mapping/..%2F..%2Fetc").status_code == 404
+    assert client.get("/mapping/unknown-token-1234567890").status_code == 404

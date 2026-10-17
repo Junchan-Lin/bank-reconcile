@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}指定欄位｜銀行入帳對帳{% endblock %}
+{% block content %}
+<p><a href="/">← 取消</a></p>
+<h2>指定欄位</h2>
+<p class="muted">有檔案的格式無法自動辨識，請指定每個欄位對應哪一欄。填上名稱就會儲存這個格式，下次上傳同樣格式的檔案會自動辨識。</p>
+{% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
+<form method="post" action="/mapping/{{ token }}">
+{% for side in sides %}
+  <section class="card">
+    <h3>{{ side.label }}：{{ side.filename }}</h3>
+    {% if side.detected %}
+      <p>已自動辨識為「{{ side.detected.name }}」。</p>
+    {% else %}
+      <div class="mapping">
+      {% for name, spec in side.fields.items() %}
+        {% set key = side.kind ~ "_" ~ name %}
+        <label for="{{ key }}">{{ spec[0] }}{% if spec[1] %} *{% endif %}</label>
+        <select id="{{ key }}" name="{{ key }}">
+          <option value="">{{ "（請選擇）" if spec[1] else "（不使用）" }}</option>
+          {% for column in side.columns %}
+          <option value="{{ column }}" {{ 'selected' if values.get(key) == column }}>{{ column }}</option>
+          {% endfor %}
+        </select>
+      {% endfor %}
+        <label for="{{ side.kind }}_save_name">儲存為格式</label>
+        <input id="{{ side.kind }}_save_name" name="{{ side.kind }}_save_name" placeholder="例如：第一銀行（可留空）" value="{{ values.get(side.kind ~ '_save_name', '') }}">
+      </div>
+      <p class="muted">前 3 列資料：</p>
+      <table class="preview">
+        <thead><tr><th>列號</th>{% for column in side.header %}<th>{{ column }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for row_no, row in side.preview %}
+          <tr><td>{{ row_no }}</td>{% for value in row %}<td>{{ value if value is not none else "" }}</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </section>
+{% endfor %}
+  <p><button>開始對帳</button></p>
+</form>
+{% endblock %}
