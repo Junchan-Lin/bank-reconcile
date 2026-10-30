@@ -5,8 +5,8 @@
   <p class="muted">上傳銀行入帳明細與訂單匯出檔（CSV 或 Excel），系統會自動辨識格式並配對；格式辨識不出來時，會請你指定欄位。</p>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   <form class="upload" method="post" action="/jobs" enctype="multipart/form-data">
-    <label>銀行明細 <input type="file" name="bank_file" accept=".csv,.xlsx" required></label>
-    <label>訂單 <input type="file" name="orders_file" accept=".csv,.xlsx" required></label>
+    <label class="file">銀行明細 <input type="file" name="bank_file" accept=".csv,.xlsx" required><span class="button secondary">選擇檔案</span><span class="filename muted">尚未選擇</span></label>
+    <label class="file">訂單 <input type="file" name="orders_file" accept=".csv,.xlsx" required><span class="button secondary">選擇檔案</span><span class="filename muted">尚未選擇</span></label>
     <label>日期容許天數 <input type="number" name="window_days" min="0" max="60" value="7"> 天</label>
     <button>開始對帳</button>
   </form>
@@ -40,4 +40,12 @@
     </tbody>
   </table>
 </section>
+<script>
+  // 瀏覽器內建的檔案欄位文字是英文，改用自訂按鈕並顯示檔名
+  document.querySelectorAll("label.file input").forEach((input) => {
+    input.addEventListener("change", () => {
+      input.parentElement.querySelector(".filename").textContent = input.files[0]?.name || "尚未選擇";
+    });
+  });
+</script>
 {% endblock %}

@@ -194,5 +194,5 @@ def test_index_retention_zero_text(tmp_path):
 
 def test_job_page_shows_order_total(client, settings):
     response = client.post("/samples", follow_redirects=True)
-    assert "訂單（" in response.text
+    assert "<span>訂單</span><small>22,220 元</small>" in response.text
     assert '<p class="actions">' not in response.text
