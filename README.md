@@ -47,7 +47,11 @@ docker compose up --build
 
 ![待確認、金額不符、未收款](docs/screenshots/details.png)
 
-（待補：Excel 報表）
+**Excel 報表**：一份檔案分成摘要、已配對、待確認、金額不符、未收款訂單、不明入帳、略過的資料列等工作表，可以直接交給會計。
+
+![Excel 報表：摘要](docs/screenshots/report-summary.png)
+
+![Excel 報表：已配對](docs/screenshots/report-matched.png)
 
 ## 使用的技術
 
